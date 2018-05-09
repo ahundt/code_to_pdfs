@@ -136,7 +136,6 @@ def main(_):
                     # other files go in back
                     all_pdfs += other_pdf
 
-
         # https://stackoverflow.com/a/37945454/99379
         merger = PdfFileMerger()
 
