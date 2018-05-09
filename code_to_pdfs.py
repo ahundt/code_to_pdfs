@@ -128,7 +128,7 @@ def main(_):
                 all_pdfs += [py_pdf]
             else:
                 other_pdf = os.path.join('/tmp', assignment_file_base + '.pdf')
-                subprocess.check_output(['pandoc', '-s', assignment_file, '-o', md_pdf])
+                subprocess.check_output(['pandoc', '-s', assignment_file, '-o', other_pdf])
                 # md files go in front
                 if '.md' in assignment_file:
                     all_pdfs = [other_pdf] + all_pdfs
