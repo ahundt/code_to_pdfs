@@ -119,6 +119,8 @@ def main(_):
     progress = tqdm(assignment_folders)
     output_files = []
     tmp_dir = os.path.join(FLAGS.tmp_dir, 'code_to_pdfs')
+
+    # create the temporary working directory
     mkdir_p(tmp_dir)
     for assignment_folder in progress:
         assignment_folder = os.path.expanduser(assignment_folder)
@@ -182,6 +184,7 @@ def main(_):
             merger.append(pdf)
 
         output_file = os.path.join(os.path.expanduser(FLAGS.save_dir), assignment_folder_basename + '.pdf')
+        mkdir_p(FLAGS.save_dir)
         merger.write(output_file)
         output_files += [output_file]
 
