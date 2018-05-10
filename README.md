@@ -20,3 +20,19 @@ python gitim.py -t <token>  -u <username> -o deep-learning-jhu -d ~/src/p03
 ```
 
 All github repositories will be cloned.
+
+# convert repositories to pdfs
+
+make sure requirements are installed
+
+```
+pip install tensorflow pypdf2
+brew install librsvg
+# you may / may not need this next line
+brew link --overwrite librsvg
+```
+
+[MacTex](https://www.tug.org/mactex/)
+
+```
+```
