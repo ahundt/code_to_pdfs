@@ -17,6 +17,7 @@ from tensorflow.python.platform import app
 # import pandas
 from PyPDF2 import PdfFileMerger
 import errno
+import traceback
 
 
 
@@ -57,6 +58,33 @@ flags.DEFINE_string(
     'we will create a dir /code_to_pdfs/ in that folder'
     'Warning: files in this location will be deleted!'
 )
+
+flags.DEFINE_string(
+    'pandoc_python_pdf_engines',
+    'lualatex,wkhtmltopdf,prince',
+    'Comma separated list with the order to try pandoc pdf conversion engines.'
+    'Options are: pdflatex|lualatex|xelatex|wkhtmltopdf|weasyprint|prince|context|pdfroff.'
+    'Note that weasyprint is super slow, but it does seem to work ok.'
+)
+
+flags.DEFINE_string(
+    'pandoc_markdown_pdf_engines',
+    'pdflatex,lualatex,wkhtmltopdf,prince',
+    'Comma separated list with the order to try pandoc pdf conversion engines.'
+    'Options are: pdflatex|lualatex|xelatex|wkhtmltopdf|weasyprint|prince|context|pdfroff.'
+    'Note that weasyprint is super slow, but it does seem to work ok.'
+)
+
+flags.DEFINE_string(
+    'pandoc_pdf_engines',
+    'pdflatex,lualatex,wkhtmltopdf,prince',
+    'Comma separated list with the order to try pandoc pdf conversion engines for files except markdown and python.'
+    'Options are: pdflatex|lualatex|xelatex|wkhtmltopdf|weasyprint|prince|context|pdfroff.'
+    'Note that weasyprint is super slow, but it does seem to work ok.'
+)
+
+# headless chrome path https://developers.google.com/web/updates/2017/04/headless-chrome
+# '/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome'
 
 # flags.DEFINE_string(
 #     'sort_by',
@@ -120,6 +148,11 @@ def main(_):
     output_files = []
     tmp_dir = os.path.join(FLAGS.tmp_dir, 'code_to_pdfs')
 
+    # get the list of pdf conversion engines
+    pandoc_markdown_pdf_engines = FLAGS.pandoc_markdown_pdf_engines.split(',')
+    pandoc_python_pdf_engines = FLAGS.pandoc_python_pdf_engines.split(',')
+    pandoc_pdf_engines = FLAGS.pandoc_pdf_engines.split(',')
+
     # create the temporary working directory
     mkdir_p(tmp_dir)
     for assignment_folder in progress:
@@ -138,7 +171,7 @@ def main(_):
             assignment_file_base = os.path.basename(assignment_file)
             mkdir_p(tmp_dir)
             pandoc_format = []
-            if '.py' in assignment_file:
+            if '.py' in assignment_file[-4:]:
 
                 # prep the html output directory
                 html_dir = os.path.join(tmp_dir, 'html')
@@ -151,34 +184,66 @@ def main(_):
                 # pandoc format param is same as pygments format command for html
                 # http://pygments.org/docs/cmdline/
                 pygment_command = ['pygmentize'] + pandoc_format
-                pygment_command += ['-O', 'full,style=colorful', '-O', 'linenos', '-O', 'title={}'.format(assignment_file_base),
+                pygment_command += ['-O', 'full,style=colorful', '-O', 'linenos',
+                                    '-O', 'title={}'.format(assignment_file_base),
                                     '-o', pandoc_input_file, assignment_file]
                 run_command_line(pygment_command, write=progress, cwd=assignment_folder)
+                pdf_engine_order = pandoc_python_pdf_engines
 
-            elif '.md' in assignment_file:
+            elif '.md' in assignment_file[-4:]:
                 pandoc_input_file = assignment_file
                 pandoc_format = ['-f', 'gfm']
+                pdf_engine_order = pandoc_markdown_pdf_engines
+            else:
+                progress.write('WARNING: Skipping file: ' + assignment_file)
+                # skip this one, it is probably a backup or something
+                continue
 
             pdf_file = os.path.join(tmp_dir, assignment_file_base + '.pdf')
-            # see https://pandoc.org/MANUAL.html
-            # gfm is github flavored markdown
-            pandoc_command = ['pandoc', '-s', pandoc_input_file, '-o', pdf_file,
-                              '--resource-path', assignment_folder]
-            pandoc_command += pandoc_format
-            run_command_line(pandoc_command, write=progress, cwd=assignment_folder)
 
-            # md files go in front, other files go in back
-            if '.md' in assignment_file:
-                all_pdfs = [pdf_file] + all_pdfs
+            pdf_success = False
+            # walk through trying the pdf engine order for this file
+            for engine in pdf_engine_order:
+                try:
+                    # Try converting the file with the various available pdf engines
+                    # until one of them succeeds
+                    # see https://pandoc.org/MANUAL.html
+                    # gfm is github flavored markdown
+                    pandoc_command = ['pandoc', '-s', pandoc_input_file, '-o', pdf_file,
+                                      '--resource-path', assignment_folder, '--pdf-engine={}'.format(engine)]
+                    pandoc_command += pandoc_format
+                    run_command_line(pandoc_command, write=progress, cwd=assignment_folder)
+                    pdf_success = True
+                    break
+                except subprocess.CalledProcessError as ex:
+                    # try another one
+                    m1 = 'Error Converting with ' + engine + ' engine: \n'
+                    ex_type, ex, tb = sys.exc_info()
+                    # apparently subprocess.CalledProcessError doesn't have a traceback
+                    # m2 = ''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__))
+                    m2 = ''.join(traceback.format_exception(etype=type(ex), value=ex, tb=tb))
+                    message = m1 + m2
+                    progress.write(message)
+                    # deletion must be explicit to prevent leaks
+                    # https://stackoverflow.com/a/16946886/99379
+                    del tb
+
+            if pdf_success:
+                # md files go in front, other files go in back
+                if '.md' in assignment_file:
+                    all_pdfs = [pdf_file] + all_pdfs
+                else:
+                    # other files go in back
+                    all_pdfs += [pdf_file]
             else:
-                # other files go in back
-                all_pdfs += [pdf_file]
+                progress.write('WARNING: FAILED TO CONVERT ' + pdf_file)
 
+        # Merge all the individually created pdf files
         # https://stackoverflow.com/a/37945454/99379
         merger = PdfFileMerger()
 
         if FLAGS.verbose:
-            progress.write('all pdfs: ' + str(all_pdfs))
+            progress.write('all pdfs for ' + assignment_folder + ': ' + str(all_pdfs))
 
         for pdf in all_pdfs:
             merger.append(pdf)
