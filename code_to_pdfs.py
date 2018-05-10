@@ -7,14 +7,16 @@ Apache License 2.0 https://www.apache.org/licenses/LICENSE-2.0
 
 """
 import os
+import sys
 import six
 import subprocess
+import shutil
 from tensorflow.python.platform import flags
 from tensorflow.python.platform import gfile
 from tensorflow.python.platform import app
-import pandas
-import grasp_utilities
+# import pandas
 from PyPDF2 import PdfFileMerger
+import errno
 
 
 
@@ -37,21 +39,23 @@ flags.DEFINE_string(
 )
 
 flags.DEFINE_string(
-    'glob_files',
-    'p03*',
-    'File path to glob for collecting assignment files in each assignment folder.'
-)
-
-flags.DEFINE_string(
     'glob_assignment_folders',
-    '*/p03*',
+    'p03*',
     'File path to glob for collecting individual repository folders.'
 )
 
 flags.DEFINE_string(
+    'glob_files',
+    'p03*',
+    'File path to glob for collecting assignment files in each repository folder.'
+)
+
+flags.DEFINE_string(
     'tmp_dir',
-    '/tmp/code_to_pdf/',
-    'Temporary directory for the file conversion'
+    '/tmp/',
+    'Temporary directory for the file conversion, '
+    'we will create a dir /code_to_pdfs/ in that folder'
+    'Warning: files in this location will be deleted!'
 )
 
 # flags.DEFINE_string(
@@ -64,6 +68,12 @@ flags.DEFINE_boolean(
     'ascending',
     False,
     'Sort in ascending (1 to 100) or descending (100 to 1) order.'
+)
+
+flags.DEFINE_boolean(
+    'verbose',
+    True,
+    'print extra details for debugging.'
 )
 
 flags.DEFINE_string(
@@ -108,36 +118,65 @@ def main(_):
     dataframe_list = []
     progress = tqdm(assignment_folders)
     output_files = []
-    mkdir_p(FLAGS.tmp_dir)
+    tmp_dir = os.path.join(FLAGS.tmp_dir, 'code_to_pdfs')
+    mkdir_p(tmp_dir)
     for assignment_folder in progress:
         assignment_folder = os.path.expanduser(assignment_folder)
         assignment_folder_basename = os.path.basename(assignment_folder)
+        progress.set_description('Generating: ' + assignment_folder)
         assignment_files = gfile.Glob(os.path.join(assignment_folder, FLAGS.glob_files))
+
+        # clear out the temp directory so we can convert this assignment
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+
+        # generate the pdfs
         all_pdfs = []
-        for i, assignment_file in enumerate(assignment_files):
+        for assignment_file in tqdm(assignment_files):
             assignment_file_base = os.path.basename(assignment_file)
+            mkdir_p(tmp_dir)
+            pandoc_format = []
             if '.py' in assignment_file:
-                tex_file = os.path.join(FLAGS.tmp_dir, '{}.tex'.format(assignment_file_base))
-                output_pygmentize = subprocess.check_output(
-                    ['pygmentize', '-f', 'tex', '-O', 'linenos', '-O', 'title={}.py'.format(assignment_file_base),
-                     '-O', 'full', '-O', 'style=default', '-o', tex_file, assignment_file])
-                output_pdflatex = subprocess.check_output(
-                    ['pdflatex', '-jobname=' + assignment_file_base, '-output-directory=' + FLAGS.tmp_dir, tex_file])
-                py_pdf = os.path.join(FLAGS.tmp_dir, tex_file + '.pdf')
-                # py files go in back
-                all_pdfs += [py_pdf]
+
+                # prep the html output directory
+                html_dir = os.path.join(tmp_dir, 'html')
+                mkdir_p(html_dir)
+
+                # turn the code into an html file
+                pandoc_input_file = os.path.join(html_dir, '{}.html'.format(assignment_file_base))
+                pandoc_format = ['-f', 'html']
+
+                # pandoc format param is same as pygments format command for html
+                # http://pygments.org/docs/cmdline/
+                pygment_command = ['pygmentize'] + pandoc_format
+                pygment_command += ['-O', 'full,style=colorful', '-O', 'linenos', '-O', 'title={}'.format(assignment_file_base),
+                                    '-o', pandoc_input_file, assignment_file]
+                run_command_line(pygment_command, write=progress, cwd=assignment_folder)
+
+            elif '.md' in assignment_file:
+                pandoc_input_file = assignment_file
+                pandoc_format = ['-f', 'gfm']
+
+            pdf_file = os.path.join(tmp_dir, assignment_file_base + '.pdf')
+            # see https://pandoc.org/MANUAL.html
+            # gfm is github flavored markdown
+            pandoc_command = ['pandoc', '-s', pandoc_input_file, '-o', pdf_file,
+                              '--resource-path', assignment_folder]
+            pandoc_command += pandoc_format
+            run_command_line(pandoc_command, write=progress, cwd=assignment_folder)
+
+            # md files go in front, other files go in back
+            if '.md' in assignment_file:
+                all_pdfs = [pdf_file] + all_pdfs
             else:
-                other_pdf = os.path.join('/tmp', assignment_file_base + '.pdf')
-                subprocess.check_output(['pandoc', '-s', assignment_file, '-o', other_pdf])
-                # md files go in front
-                if '.md' in assignment_file:
-                    all_pdfs = [other_pdf] + all_pdfs
-                else:
-                    # other files go in back
-                    all_pdfs += other_pdf
+                # other files go in back
+                all_pdfs += [pdf_file]
 
         # https://stackoverflow.com/a/37945454/99379
         merger = PdfFileMerger()
+
+        if FLAGS.verbose:
+            progress.write('all pdfs: ' + str(all_pdfs))
 
         for pdf in all_pdfs:
             merger.append(pdf)
@@ -187,6 +226,18 @@ def main(_):
     # output_filename = os.path.join(FLAGS.save_dir, FLAGS.save_csv)
     # results_df.to_csv(output_filename)
     print('Processing complete. Results saved to file: ' + str(output_files))
+
+
+def run_command_line(command, write=sys.stdout, **kwargs):
+    """ Run a command line command with subprocess.check_output()
+
+    Also adds a little extra debug printout options.
+    """
+    if FLAGS.verbose and write is not None:
+        command_for_printing = ' '.join(command)
+        write.write('>>> ' + command_for_printing)
+    output_pygmentize = subprocess.check_output(command, **kwargs)
+    return output_pygmentize
 
 if __name__ == '__main__':
     app.run(main=main)
