@@ -129,29 +129,47 @@ def mkdir_p(path):
 
 
 def main(_):
+    """ Load all the command line arguments and pass them to the primary repository conversion function
+    """
     assignment_folders = gfile.Glob(os.path.join(os.path.expanduser(FLAGS.log_dir), FLAGS.glob_assignment_folders))
     dataframe_list = []
-    progress = tqdm(assignment_folders)
     output_files = []
     tmp_dir = os.path.join(FLAGS.tmp_dir, 'code_to_pdfs')
-    html_dir = os.path.join(tmp_dir, 'html')
     markdown_engines = FLAGS.markdown_engines.split(',')
+    save_dir = FLAGS.save_dir
 
     # get the list of pdf conversion engines
     pandoc_markdown_pdf_engines = FLAGS.pandoc_markdown_pdf_engines.split(',')
     pandoc_python_pdf_engines = FLAGS.pandoc_python_pdf_engines.split(',')
     pandoc_pdf_engines = FLAGS.pandoc_pdf_engines.split(',')
+    glob_files = FLAGS.glob_files
+    verbose = FLAGS.verbose
 
+    output_files = repository_to_pdf(
+        tmp_dir, assignment_folders, glob_files, pandoc_python_pdf_engines,
+        markdown_engines, pandoc_markdown_pdf_engines, save_dir, verbose)
+
+    print('Processing complete generated files: ' + str(output_files))
+
+
+def repository_to_pdf(
+        tmp_dir, assignment_folders, glob_files, pandoc_python_pdf_engines,
+        markdown_engines, pandoc_markdown_pdf_engines, save_dir, verbose=False):
+    """ Convert one or more repositories to pdf files for grading
+    """
+    progress = tqdm(assignment_folders)
+    html_dir = os.path.join(tmp_dir, 'html')
     # create the temporary working directory
     mkdir_p(tmp_dir)
     # prep the html output directory
     mkdir_p(html_dir)
+    output_files = []
 
     for assignment_folder in progress:
         assignment_folder = os.path.expanduser(assignment_folder)
         assignment_folder_basename = os.path.basename(assignment_folder)
         progress.set_description('Generating: ' + assignment_folder)
-        assignment_files = gfile.Glob(os.path.join(assignment_folder, FLAGS.glob_files))
+        assignment_files = gfile.Glob(os.path.join(assignment_folder, glob_files))
 
         # clear out the temp directory so we can convert this assignment
         if os.path.exists(tmp_dir):
@@ -188,7 +206,8 @@ def main(_):
                 pdf_success = chrome_html_to_pdf(html_file, output_pdf_file, progress, assignment_folder)
 
             elif '.md' in assignment_file[-4:]:
-                pdf_success = markdown_to_pdf(html_dir, assignment_file, progress, assignment_folder,
+                pdf_success = markdown_to_pdf(
+                    html_dir, assignment_file, progress, assignment_folder,
                     output_pdf_file, markdown_engines, pandoc_markdown_pdf_engines)
             else:
                 progress.write('WARNING: Skipping file: ' + assignment_file)
@@ -209,21 +228,20 @@ def main(_):
         # https://stackoverflow.com/a/37945454/99379
         merger = PdfFileMerger()
 
-        output_file = os.path.join(os.path.expanduser(FLAGS.save_dir), assignment_folder_basename + '.pdf')
-        if FLAGS.verbose:
+        output_file = os.path.join(os.path.expanduser(save_dir), assignment_folder_basename + '.pdf')
+        if verbose:
             progress.write('Generating pdf: ' + output_file + ' from folder: ' + assignment_folder + ' by combining: ' + str(all_pdfs))
 
         for pdf in all_pdfs:
             merger.append(pdf)
 
-        mkdir_p(FLAGS.save_dir)
+        mkdir_p(save_dir)
         merger.write(output_file)
         output_files += [output_file]
 
-        if FLAGS.verbose:
+        if verbose:
             progress.write('PDF Complete: ' + str(output_file))
-
-    print('Processing complete generated files: ' + str(output_files))
+    return output_files
 
 
 def markdown_to_pdf(html_dir, assignment_file, write, assignment_folder, output_pdf_file, markdown_engines, pandoc_markdown_pdf_engines):
