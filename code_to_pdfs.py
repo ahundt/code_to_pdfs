@@ -62,16 +62,28 @@ flags.DEFINE_string(
 )
 
 flags.DEFINE_string(
-    'pandoc_python_pdf_engines',
-    'lualatex,wkhtmltopdf,prince',
-    'Comma separated list with the order to try pandoc pdf conversion engines.'
-    'Options are: pdflatex|lualatex|xelatex|wkhtmltopdf|weasyprint|prince|context|pdfroff.'
-    'Note that weasyprint is super slow, but it does seem to work ok.'
+    'markdown_engines',
+    'pandoc,marked',
+    'Comma separated list with the order to try different markdown engines.'
+    'Options are: pandoc, marked. pandoc seems to do a bit better.'
+    'See https://github.com/markedjs/marked and https://pandoc.org/'
+    'Pandoc will in turn run many of its own engines if there are problems'
+    'so also see the pandoc_markdown_pdf_engines flag for additional settings.'
 )
 
 flags.DEFINE_string(
     'pandoc_markdown_pdf_engines',
     'pdflatex,lualatex,wkhtmltopdf,prince',
+    'Comma separated list with the order to try pandoc pdf conversion engines.'
+    'Options are: pdflatex|lualatex|xelatex|wkhtmltopdf|weasyprint|prince|context|pdfroff.'
+    'For details on what these are, see see https://pandoc.org/MANUAL.html'
+    'Note that weasyprint is super slow, but it does seem to work ok.'
+    'Only relevant while pandoc is one of the markdown_engines flags.'
+)
+
+flags.DEFINE_string(
+    'pandoc_python_pdf_engines',
+    'lualatex,wkhtmltopdf,prince',
     'Comma separated list with the order to try pandoc pdf conversion engines.'
     'Options are: pdflatex|lualatex|xelatex|wkhtmltopdf|weasyprint|prince|context|pdfroff.'
     'Note that weasyprint is super slow, but it does seem to work ok.'
@@ -95,13 +107,6 @@ flags.DEFINE_boolean(
     'verbose',
     True,
     'print extra details for debugging.'
-)
-
-flags.DEFINE_string(
-    'markdown_renderer',
-    'pandoc',
-    'Options are: pandoc, marked. pandoc seems to do a bit better.'
-    'See https://github.com/markedjs/marked and https://pandoc.org/'
 )
 
 FLAGS = flags.FLAGS
@@ -130,7 +135,7 @@ def main(_):
     output_files = []
     tmp_dir = os.path.join(FLAGS.tmp_dir, 'code_to_pdfs')
     html_dir = os.path.join(tmp_dir, 'html')
-    markdown_renderer = FLAGS.markdown_renderer
+    markdown_engines = FLAGS.markdown_engines.split(',')
 
     # get the list of pdf conversion engines
     pandoc_markdown_pdf_engines = FLAGS.pandoc_markdown_pdf_engines.split(',')
@@ -183,22 +188,8 @@ def main(_):
                 pdf_success = chrome_html_to_pdf(html_file, output_pdf_file, progress, assignment_folder)
 
             elif '.md' in assignment_file[-4:]:
-
-                if markdown_renderer == 'marked':
-                    html_file = os.path.join(html_dir, '{}.html'.format(assignment_file_base))
-                    # https://github.com/markedjs/marked
-                    marked_html_command = ['marked', '-i', assignment_file, '-o', html_file]
-                    run_command_line(marked_html_command, write=progress, cwd=assignment_folder)
-                    # use google chrome to render the html version of the python file to pdf
-                    # https://developers.google.com/web/updates/2017/04/headless-chrome
-                    # https://www.npmjs.com/package/chrome-headless-render-pdf
-                    pdf_success = chrome_html_to_pdf(html_file, output_pdf_file, progress, assignment_folder)
-                elif markdown_renderer == 'pandoc':
-                    pandoc_format = ['-f', 'gfm']
-                    pdf_engine_order = pandoc_markdown_pdf_engines
-                    pdf_success = pandoc_convert_to_pdf(assignment_file, output_pdf_file, assignment_folder, pandoc_format, pdf_engine_order, progress)
-                else:
-                    raise ValueError('Unsupported markdown renderer ' + str(markdown_renderer))
+                pdf_success = markdown_to_pdf(html_dir, assignment_file, progress, assignment_folder,
+                    output_pdf_file, markdown_engines, pandoc_markdown_pdf_engines)
             else:
                 progress.write('WARNING: Skipping file: ' + assignment_file)
                 # skip this one, it is probably a backup or something
@@ -233,6 +224,42 @@ def main(_):
             progress.write('PDF Complete: ' + str(output_file))
 
     print('Processing complete generated files: ' + str(output_files))
+
+
+def markdown_to_pdf(html_dir, assignment_file, write, assignment_folder, output_pdf_file, markdown_engines, pandoc_markdown_pdf_engines):
+    pdf_success = False
+    assignment_file_base = os.path.basename(assignment_file)
+    for engine in markdown_engines:
+        try:
+            if engine == 'marked':
+                html_file = os.path.join(html_dir, '{}.html'.format(assignment_file_base))
+                # https://github.com/markedjs/marked
+                marked_html_command = ['marked', '-i', assignment_file, '-o', html_file]
+                run_command_line(marked_html_command, write=write, cwd=assignment_folder)
+                # use google chrome to render the html version of the python file to pdf
+                # https://developers.google.com/web/updates/2017/04/headless-chrome
+                # https://www.npmjs.com/package/chrome-headless-render-pdf
+                pdf_success = chrome_html_to_pdf(html_file, output_pdf_file, write, assignment_folder)
+            elif engine == 'pandoc':
+                pandoc_format = ['-f', 'gfm']
+                pdf_engine_order = pandoc_markdown_pdf_engines
+                pdf_success = pandoc_convert_to_pdf(assignment_file, output_pdf_file, assignment_folder, pandoc_format, pdf_engine_order, write)
+            else:
+                raise ValueError('Unsupported markdown renderer ' + str(engine))
+
+        except subprocess.CalledProcessError as ex:
+            # try another one
+            m1 = 'Error Converting with ' + engine + ' engine: \n'
+            ex_type, ex, tb = sys.exc_info()
+            # apparently subprocess.CalledProcessError doesn't have a traceback
+            # m2 = ''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__))
+            m2 = ''.join(traceback.format_exception(etype=type(ex), value=ex, tb=tb))
+            message = m1 + m2
+            write.write(message)
+            # deletion must be explicit to prevent leaks
+            # https://stackoverflow.com/a/16946886/99379
+            del tb
+    return pdf_success
 
 
 def chrome_html_to_pdf(html_file, output_pdf_file, progress, assignment_folder):
