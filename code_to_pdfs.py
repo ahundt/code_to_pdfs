@@ -36,7 +36,8 @@ except ImportError:
 flags.DEFINE_string(
     'log_dir',
     '~/src/deep-learning-jhu/p03/',
-    'Directory for multiple code repositories'
+    'Directory for multiple code repositories, '
+    'each of which will be converted to pdf'
 )
 
 flags.DEFINE_string(
@@ -170,6 +171,9 @@ def main(_):
         for assignment_file in tqdm(assignment_files):
             assignment_file_base = os.path.basename(assignment_file)
             mkdir_p(tmp_dir)
+
+            output_pdf_file = os.path.join(tmp_dir, assignment_file_base + '.pdf')
+
             pandoc_format = []
             if '.py' in assignment_file[-4:]:
 
@@ -190,68 +194,53 @@ def main(_):
                 run_command_line(pygment_command, write=progress, cwd=assignment_folder)
                 pdf_engine_order = pandoc_python_pdf_engines
 
+                # use google chrome to render the html version of the python file to pdf
+                # https://developers.google.com/web/updates/2017/04/headless-chrome
+                # https://www.npmjs.com/package/chrome-headless-render-pdf
+                chrome_render_command = ['chrome-headless-render-pdf', '--url', 'file://' + pandoc_input_file,
+                                         '--pdf', output_pdf_file]
+                run_command_line(chrome_render_command, write=progress, cwd=assignment_folder)
+                pdf_success = True
+
             elif '.md' in assignment_file[-4:]:
                 pandoc_input_file = assignment_file
                 pandoc_format = ['-f', 'gfm']
                 pdf_engine_order = pandoc_markdown_pdf_engines
+                pdf_success = pandoc_convert_to_pdf(pandoc_input_file, output_pdf_file, assignment_folder, pandoc_format, pdf_engine_order, progress)
             else:
                 progress.write('WARNING: Skipping file: ' + assignment_file)
                 # skip this one, it is probably a backup or something
                 continue
 
-            pdf_file = os.path.join(tmp_dir, assignment_file_base + '.pdf')
-
-            pdf_success = False
-            # walk through trying the pdf engine order for this file
-            for engine in pdf_engine_order:
-                try:
-                    # Try converting the file with the various available pdf engines
-                    # until one of them succeeds
-                    # see https://pandoc.org/MANUAL.html
-                    # gfm is github flavored markdown
-                    pandoc_command = ['pandoc', '-s', pandoc_input_file, '-o', pdf_file,
-                                      '--resource-path', assignment_folder, '--pdf-engine={}'.format(engine)]
-                    pandoc_command += pandoc_format
-                    run_command_line(pandoc_command, write=progress, cwd=assignment_folder)
-                    pdf_success = True
-                    break
-                except subprocess.CalledProcessError as ex:
-                    # try another one
-                    m1 = 'Error Converting with ' + engine + ' engine: \n'
-                    ex_type, ex, tb = sys.exc_info()
-                    # apparently subprocess.CalledProcessError doesn't have a traceback
-                    # m2 = ''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__))
-                    m2 = ''.join(traceback.format_exception(etype=type(ex), value=ex, tb=tb))
-                    message = m1 + m2
-                    progress.write(message)
-                    # deletion must be explicit to prevent leaks
-                    # https://stackoverflow.com/a/16946886/99379
-                    del tb
-
             if pdf_success:
                 # md files go in front, other files go in back
                 if '.md' in assignment_file:
-                    all_pdfs = [pdf_file] + all_pdfs
+                    all_pdfs = [output_pdf_file] + all_pdfs
                 else:
                     # other files go in back
-                    all_pdfs += [pdf_file]
+                    all_pdfs += [output_pdf_file]
             else:
-                progress.write('WARNING: FAILED TO CONVERT ' + pdf_file)
+                progress.write('WARNING: FAILED TO CONVERT ' + output_pdf_file)
 
         # Merge all the individually created pdf files
         # https://stackoverflow.com/a/37945454/99379
         merger = PdfFileMerger()
 
+        output_file = os.path.join(os.path.expanduser(FLAGS.save_dir), assignment_folder_basename + '.pdf')
         if FLAGS.verbose:
-            progress.write('all pdfs for ' + assignment_folder + ': ' + str(all_pdfs))
+            progress.write('Generating pdf: ' + output_file + ' from folder: ' + assignment_folder + ' by combining: ' + str(all_pdfs))
 
         for pdf in all_pdfs:
             merger.append(pdf)
 
-        output_file = os.path.join(os.path.expanduser(FLAGS.save_dir), assignment_folder_basename + '.pdf')
         mkdir_p(FLAGS.save_dir)
         merger.write(output_file)
         output_files += [output_file]
+
+        if FLAGS.verbose:
+            progress.write('PDF Complete: ' + str(output_file))
+
+    print('Processing complete generated files: ' + str(output_files))
 
             # # progress.write('reading: ' + str(csv_file))
             # try:
@@ -293,7 +282,41 @@ def main(_):
     #     FLAGS.save_dir = FLAGS.log_dir
     # output_filename = os.path.join(FLAGS.save_dir, FLAGS.save_csv)
     # results_df.to_csv(output_filename)
-    print('Processing complete. Results saved to file: ' + str(output_files))
+
+
+def pandoc_convert_to_pdf(pandoc_input_file, pdf_output_file, cwd, pandoc_format, pdf_engine_order=None, write=sys.stdout):
+    """
+    pandoc format: ['-f', 'html']
+    """
+    pdf_success = False
+    if pdf_engine_order is None:
+        pdf_engine_order = FLAGS.pdf_engine_order
+    # walk through trying the pdf engine order for this file
+    for engine in pdf_engine_order:
+        try:
+            # Try converting the file with the various available pdf engines
+            # until one of them succeeds
+            # see https://pandoc.org/MANUAL.html
+            # gfm is github flavored markdown
+            pandoc_command = ['pandoc', '-s', pandoc_input_file, '-o', pdf_output_file,
+                              '--resource-path', cwd, '--pdf-engine={}'.format(engine)]
+            pandoc_command += pandoc_format
+            run_command_line(pandoc_command, write=write, cwd=cwd)
+            pdf_success = True
+            break
+        except subprocess.CalledProcessError as ex:
+            # try another one
+            m1 = 'Error Converting with ' + engine + ' engine: \n'
+            ex_type, ex, tb = sys.exc_info()
+            # apparently subprocess.CalledProcessError doesn't have a traceback
+            # m2 = ''.join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__))
+            m2 = ''.join(traceback.format_exception(etype=type(ex), value=ex, tb=tb))
+            message = m1 + m2
+            write.write(message)
+            # deletion must be explicit to prevent leaks
+            # https://stackoverflow.com/a/16946886/99379
+            del tb
+    return pdf_success
 
 
 def run_command_line(command, write=sys.stdout, **kwargs):
