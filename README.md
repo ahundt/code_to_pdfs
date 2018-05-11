@@ -34,11 +34,13 @@ Make sure requirements are installed, and `~/.local/bin` is on your `PATH` in yo
 pip2 install tensorflow pypdf2 weasyprint --user --upgrade
 brew install librsvg npm node
 npm install -g chrome-headless-render-pdf
+npm install -g marked
 # https://www.princexml.com/ for pdf conversion
 brew cask install caskroom/versions/prince-latest
 ```
 
 - [chrome-headless-render-pdf](https://www.npmjs.com/package/chrome-headless-render-pdf) - for rendering html to pdf
+- [marked](https://github.com/markedjs/marked) - for rendering markdown to html
 - [node.js](https://changelog.com/posts/install-node-js-with-homebrew-on-os-x) - installer for chrome-headless-render-pdf
 
 

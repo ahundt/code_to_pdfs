@@ -44,6 +44,7 @@ flags.DEFINE_string(
     'glob_assignment_folders',
     'p03*',
     'File path to glob for collecting individual repository folders.'
+    'Can also be a path to a single assignment folder.'
 )
 
 flags.DEFINE_string(
@@ -84,19 +85,10 @@ flags.DEFINE_string(
     'Note that weasyprint is super slow, but it does seem to work ok.'
 )
 
-# headless chrome path https://developers.google.com/web/updates/2017/04/headless-chrome
-# '/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome'
-
-# flags.DEFINE_string(
-#     'sort_by',
-#     'val_binary_accuracy',
-#     'variable name string to sort results by'
-# )
-
-flags.DEFINE_boolean(
-    'ascending',
-    False,
-    'Sort in ascending (1 to 100) or descending (100 to 1) order.'
+flags.DEFINE_string(
+    'save_dir',
+    './pdfs',
+    'Where to save the pdfs, defaults to ./pdfs'
 )
 
 flags.DEFINE_boolean(
@@ -106,21 +98,10 @@ flags.DEFINE_boolean(
 )
 
 flags.DEFINE_string(
-    'save_csv',
-    'hyperopt_rank.csv',
-    'Where to save the sorted output csv file with the results'
-)
-
-flags.DEFINE_string(
-    'save_dir',
-    './pdfs',
-    'Where to save the pdfs, defaults to ./pdfs'
-)
-
-flags.DEFINE_boolean(
-    'print_results',
-    False,
-    'Print the results'
+    'markdown_renderer',
+    'pandoc',
+    'Options are: pandoc, marked. pandoc seems to do a bit better.'
+    'See https://github.com/markedjs/marked and https://pandoc.org/'
 )
 
 FLAGS = flags.FLAGS
@@ -148,6 +129,8 @@ def main(_):
     progress = tqdm(assignment_folders)
     output_files = []
     tmp_dir = os.path.join(FLAGS.tmp_dir, 'code_to_pdfs')
+    html_dir = os.path.join(tmp_dir, 'html')
+    markdown_renderer = FLAGS.markdown_renderer
 
     # get the list of pdf conversion engines
     pandoc_markdown_pdf_engines = FLAGS.pandoc_markdown_pdf_engines.split(',')
@@ -156,6 +139,9 @@ def main(_):
 
     # create the temporary working directory
     mkdir_p(tmp_dir)
+    # prep the html output directory
+    mkdir_p(html_dir)
+
     for assignment_folder in progress:
         assignment_folder = os.path.expanduser(assignment_folder)
         assignment_folder_basename = os.path.basename(assignment_folder)
@@ -166,23 +152,20 @@ def main(_):
         if os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir)
 
+        mkdir_p(tmp_dir)
+        mkdir_p(html_dir)
         # generate the pdfs
         all_pdfs = []
         for assignment_file in tqdm(assignment_files):
             assignment_file_base = os.path.basename(assignment_file)
-            mkdir_p(tmp_dir)
 
             output_pdf_file = os.path.join(tmp_dir, assignment_file_base + '.pdf')
 
             pandoc_format = []
             if '.py' in assignment_file[-4:]:
 
-                # prep the html output directory
-                html_dir = os.path.join(tmp_dir, 'html')
-                mkdir_p(html_dir)
-
                 # turn the code into an html file
-                pandoc_input_file = os.path.join(html_dir, '{}.html'.format(assignment_file_base))
+                html_file = os.path.join(html_dir, '{}.html'.format(assignment_file_base))
                 pandoc_format = ['-f', 'html']
 
                 # pandoc format param is same as pygments format command for html
@@ -190,23 +173,32 @@ def main(_):
                 pygment_command = ['pygmentize'] + pandoc_format
                 pygment_command += ['-O', 'full,style=colorful', '-O', 'linenos',
                                     '-O', 'title={}'.format(assignment_file_base),
-                                    '-o', pandoc_input_file, assignment_file]
+                                    '-o', html_file, assignment_file]
                 run_command_line(pygment_command, write=progress, cwd=assignment_folder)
                 pdf_engine_order = pandoc_python_pdf_engines
 
                 # use google chrome to render the html version of the python file to pdf
                 # https://developers.google.com/web/updates/2017/04/headless-chrome
                 # https://www.npmjs.com/package/chrome-headless-render-pdf
-                chrome_render_command = ['chrome-headless-render-pdf', '--url', 'file://' + pandoc_input_file,
-                                         '--pdf', output_pdf_file]
-                run_command_line(chrome_render_command, write=progress, cwd=assignment_folder)
-                pdf_success = True
+                pdf_success = chrome_html_to_pdf(html_file, output_pdf_file, progress, assignment_folder)
 
             elif '.md' in assignment_file[-4:]:
-                pandoc_input_file = assignment_file
-                pandoc_format = ['-f', 'gfm']
-                pdf_engine_order = pandoc_markdown_pdf_engines
-                pdf_success = pandoc_convert_to_pdf(pandoc_input_file, output_pdf_file, assignment_folder, pandoc_format, pdf_engine_order, progress)
+
+                if markdown_renderer == 'marked':
+                    html_file = os.path.join(html_dir, '{}.html'.format(assignment_file_base))
+                    # https://github.com/markedjs/marked
+                    marked_html_command = ['marked', '-i', assignment_file, '-o', html_file]
+                    run_command_line(marked_html_command, write=progress, cwd=assignment_folder)
+                    # use google chrome to render the html version of the python file to pdf
+                    # https://developers.google.com/web/updates/2017/04/headless-chrome
+                    # https://www.npmjs.com/package/chrome-headless-render-pdf
+                    pdf_success = chrome_html_to_pdf(html_file, output_pdf_file, progress, assignment_folder)
+                elif markdown_renderer == 'pandoc':
+                    pandoc_format = ['-f', 'gfm']
+                    pdf_engine_order = pandoc_markdown_pdf_engines
+                    pdf_success = pandoc_convert_to_pdf(assignment_file, output_pdf_file, assignment_folder, pandoc_format, pdf_engine_order, progress)
+                else:
+                    raise ValueError('Unsupported markdown renderer ' + str(markdown_renderer))
             else:
                 progress.write('WARNING: Skipping file: ' + assignment_file)
                 # skip this one, it is probably a backup or something
@@ -241,6 +233,17 @@ def main(_):
             progress.write('PDF Complete: ' + str(output_file))
 
     print('Processing complete generated files: ' + str(output_files))
+
+
+def chrome_html_to_pdf(html_file, output_pdf_file, progress, assignment_folder):
+    # use google chrome to render the html version of the python file to pdf
+    # https://developers.google.com/web/updates/2017/04/headless-chrome
+    # https://www.npmjs.com/package/chrome-headless-render-pdf
+    chrome_render_command = ['chrome-headless-render-pdf', '--url', 'file://' + html_file,
+                             '--pdf', output_pdf_file]
+    run_command_line(chrome_render_command, write=progress, cwd=assignment_folder)
+    pdf_success = True
+    return pdf_success
 
             # # progress.write('reading: ' + str(csv_file))
             # try:
@@ -284,7 +287,7 @@ def main(_):
     # results_df.to_csv(output_filename)
 
 
-def pandoc_convert_to_pdf(pandoc_input_file, pdf_output_file, cwd, pandoc_format, pdf_engine_order=None, write=sys.stdout):
+def pandoc_convert_to_pdf(input_file, pdf_output_file, cwd, pandoc_format, pdf_engine_order=None, write=sys.stdout):
     """
     pandoc format: ['-f', 'html']
     """
@@ -298,7 +301,7 @@ def pandoc_convert_to_pdf(pandoc_input_file, pdf_output_file, cwd, pandoc_format
             # until one of them succeeds
             # see https://pandoc.org/MANUAL.html
             # gfm is github flavored markdown
-            pandoc_command = ['pandoc', '-s', pandoc_input_file, '-o', pdf_output_file,
+            pandoc_command = ['pandoc', '-s', input_file, '-o', pdf_output_file,
                               '--resource-path', cwd, '--pdf-engine={}'.format(engine)]
             pandoc_command += pandoc_format
             run_command_line(pandoc_command, write=write, cwd=cwd)
