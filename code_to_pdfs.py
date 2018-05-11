@@ -224,19 +224,12 @@ def repository_to_pdf(
             else:
                 progress.write('WARNING: FAILED TO CONVERT ' + output_pdf_file)
 
-        # Merge all the individually created pdf files
-        # https://stackoverflow.com/a/37945454/99379
-        merger = PdfFileMerger()
-
         output_file = os.path.join(os.path.expanduser(save_dir), assignment_folder_basename + '.pdf')
         if verbose:
             progress.write('Generating pdf: ' + output_file + ' from folder: ' + assignment_folder + ' by combining: ' + str(all_pdfs))
 
-        for pdf in all_pdfs:
-            merger.append(pdf)
-
         mkdir_p(save_dir)
-        merger.write(output_file)
+        merge_pdfs(all_pdfs, output_file)
         output_files += [output_file]
 
         if verbose:
@@ -244,24 +237,44 @@ def repository_to_pdf(
     return output_files
 
 
-def markdown_to_pdf(html_dir, assignment_file, write, assignment_folder, output_pdf_file, markdown_engines, pandoc_markdown_pdf_engines):
+def merge_pdfs(all_pdfs, output_file):
+    """ Merge a bunch of separately created pdf files into one and write to disk.
+    """
+    # Merge all the individually created pdf files
+    # https://stackoverflow.com/a/37945454/99379
+    merger = PdfFileMerger()
+
+    for pdf in all_pdfs:
+        merger.append(pdf)
+
+    merger.write(output_file)
+
+
+def markdown_to_pdf(html_dir, input_file, write, cwd, output_pdf_file, markdown_engines, pandoc_markdown_pdf_engines):
+    """ Convert a markdown file to pdf
+
+        output_pdf_file: the pdf file path to output.
+        cwd: current working directory, the directory the command would be run from if it was run on the command line.
+        markdown_engines: see markdown_engines flag in this file.
+        pandoc_markdown_pdf_engines: see pandoc_markdown_pdf_engines flag in this file.
+    """
     pdf_success = False
-    assignment_file_base = os.path.basename(assignment_file)
+    input_file_base = os.path.basename(input_file)
     for engine in markdown_engines:
         try:
             if engine == 'marked':
-                html_file = os.path.join(html_dir, '{}.html'.format(assignment_file_base))
+                html_file = os.path.join(html_dir, '{}.html'.format(input_file_base))
                 # https://github.com/markedjs/marked
-                marked_html_command = ['marked', '-i', assignment_file, '-o', html_file]
-                run_command_line(marked_html_command, write=write, cwd=assignment_folder)
+                marked_html_command = ['marked', '-i', input_file, '-o', html_file]
+                run_command_line(marked_html_command, write=write, cwd=cwd)
                 # use google chrome to render the html version of the python file to pdf
                 # https://developers.google.com/web/updates/2017/04/headless-chrome
                 # https://www.npmjs.com/package/chrome-headless-render-pdf
-                pdf_success = chrome_html_to_pdf(html_file, output_pdf_file, write, assignment_folder)
+                pdf_success = chrome_html_to_pdf(html_file, output_pdf_file, write, cwd)
             elif engine == 'pandoc':
                 pandoc_format = ['-f', 'gfm']
                 pdf_engine_order = pandoc_markdown_pdf_engines
-                pdf_success = pandoc_convert_to_pdf(assignment_file, output_pdf_file, assignment_folder, pandoc_format, pdf_engine_order, write)
+                pdf_success = pandoc_convert_to_pdf(input_file, output_pdf_file, cwd, pandoc_format, pdf_engine_order, write)
             else:
                 raise ValueError('Unsupported markdown renderer ' + str(engine))
 
@@ -280,13 +293,13 @@ def markdown_to_pdf(html_dir, assignment_file, write, assignment_folder, output_
     return pdf_success
 
 
-def chrome_html_to_pdf(html_file, output_pdf_file, progress, assignment_folder):
+def chrome_html_to_pdf(html_file, output_pdf_file, progress, cwd):
     # use google chrome to render the html version of the python file to pdf
     # https://developers.google.com/web/updates/2017/04/headless-chrome
     # https://www.npmjs.com/package/chrome-headless-render-pdf
     chrome_render_command = ['chrome-headless-render-pdf', '--url', 'file://' + html_file,
                              '--pdf', output_pdf_file]
-    run_command_line(chrome_render_command, write=progress, cwd=assignment_folder)
+    run_command_line(chrome_render_command, write=progress, cwd=cwd)
     pdf_success = True
     return pdf_success
 
