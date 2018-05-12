@@ -39,7 +39,7 @@ flags.DEFINE_string(
 
 flags.DEFINE_string(
     'glob_files',
-    '*p03*',
+    'p03*',
     'File path to glob for collecting assignment files in each repository folder.'
 )
 
@@ -145,8 +145,8 @@ def main(_):
     verbose = FLAGS.verbose
 
     output_files = repository_to_pdf(
-        assignment_folders, glob_files, pandoc_python_pdf_engines,
-        markdown_engines, pandoc_markdown_pdf_engines, save_dir,
+        assignment_folders, glob_files, save_dir, markdown_engines,
+        pandoc_markdown_pdf_engines, pandoc_python_pdf_engines,
         tmp_dir, verbose)
 
     print('Processing complete generated files: ' + str(output_files))
@@ -174,6 +174,7 @@ def repository_to_pdf(
     assignment_folders = []
     for assignment_folder in glob_repository_folders:
         assignment_folders += gfile.Glob(os.path.expanduser(assignment_folder))
+
     progress = tqdm(assignment_folders)
     html_dir = os.path.join(tmp_dir, 'html')
     # create the temporary working directory
@@ -186,10 +187,11 @@ def repository_to_pdf(
         assignment_folder = os.path.expanduser(assignment_folder)
         assignment_folder_basename = os.path.basename(assignment_folder)
         progress.set_description('Generating: ' + assignment_folder)
-        glob_files = 'p03*'
+
         assignment_files = []
         for glob_file in glob_files:
-            assignment_files += gfile.Glob(os.path.join(assignment_folder, glob_file))
+            files = os.path.join(assignment_folder, glob_file)
+            assignment_files += gfile.Glob(files)
 
         # clear out the temp directory so we can convert this assignment
         if os.path.exists(tmp_dir):
