@@ -28,9 +28,7 @@ python gitim.py -t <token>  -u <username> -o deep-learning-jhu -d ~/src/p03
 
 All github repositories will be cloned.
 
-# Convert repositories to pdfs
-
-1. Install dependencies
+# Installation
 
 Make sure requirements are installed, and `~/.local/bin` is on your `PATH` in your `.bashrc` file:
 
@@ -47,10 +45,19 @@ brew cask install caskroom/versions/prince-latest
 - [marked](https://github.com/markedjs/marked) - for rendering markdown to html
 - [node.js](https://changelog.com/posts/install-node-js-with-homebrew-on-os-x) - installer for chrome-headless-render-pdf
 
-2. Run code_to_pdfs.py
+
+# Convert repositories to pdfs
+
+Single repository conversion:
 
 ```
-python code_to_pdfs.py
+python code_to_pdfs.py --glob_repository_folders ~/src/deep-learning-jhu-cs-482-682 --glob_files p03* --extra_glob_files README*
+```
+
+Bulk repository conversion:
+
+```
+python code_to_pdfs.py --glob_repository_folders ~/src/deep-learning-jhu/p03/* --glob_files p03*
 ```
 
 # Troubleshooting
