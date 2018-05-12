@@ -31,7 +31,7 @@ except ImportError:
         return kwargs.get('iterable', None)
 
 flags.DEFINE_string(
-    'glob_assignment_folders',
+    'glob_repository_folders',
     '~/src/deep-learning-jhu/p03/*',
     'File path to glob for collecting multiple individual repository folders.'
     'Can also be a path to a single repository folder.'
@@ -128,7 +128,7 @@ def mkdir_p(path):
 def main(_):
     """ Load all the command line arguments and pass them to the primary repository conversion function
     """
-    assignment_folders = gfile.Glob(os.path.expanduser(FLAGS.glob_assignment_folders))
+    assignment_folders = gfile.Glob(os.path.expanduser(FLAGS.glob_repository_folders))
     dataframe_list = []
     output_files = []
     tmp_dir = os.path.join(FLAGS.tmp_dir, 'code_to_pdfs')
@@ -153,7 +153,7 @@ def main(_):
 
 
 def repository_to_pdf(
-        glob_assignment_folders, glob_files, save_dir,
+        glob_repository_folders, glob_files, save_dir,
         markdown_engines=None, pandoc_markdown_pdf_engines=None,
         pandoc_python_pdf_engines=None,
         tmp_dir='/tmp', verbose=False):
@@ -167,12 +167,12 @@ def repository_to_pdf(
         pandoc_python_pdf_engines = FLAGS.pandoc_python_pdf_engines.split(',')
     if pandoc_python_pdf_engines is None:
         pandoc_pdf_engines = FLAGS.pandoc_pdf_engines.split(',')
-    if not isinstance(glob_assignment_folders, list):
-        glob_assignment_folders = [glob_assignment_folders]
+    if not isinstance(glob_repository_folders, list):
+        glob_repository_folders = [glob_repository_folders]
     if not isinstance(glob_files, list):
         glob_files = [glob_files]
     assignment_folders = []
-    for assignment_folder in glob_assignment_folders:
+    for assignment_folder in glob_repository_folders:
         assignment_folders += gfile.Glob(os.path.expanduser(assignment_folder))
     progress = tqdm(assignment_folders)
     html_dir = os.path.join(tmp_dir, 'html')

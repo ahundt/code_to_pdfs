@@ -1,12 +1,14 @@
-# grading-deep-learning
-Utilities and notes for grading assignments
+# Code to PDFs
+
+Utilities and notes for converting code repositories to pdfs.
+I created this as a helpful tool for grading assignments.
 
 setup is tested with [homebrew](brew.sh) on mac,
 might work with [linuxbrew](http://linuxbrew.sh) on linux,
 or you can find the steps to install the equivalent packages
 and if you do, please update this readme!
 
-# bulk clone github repositories
+# Bulk clone github repositories
 
 1. set up your [github API token](https://developer.github.com/v3/auth/).
 
@@ -26,7 +28,9 @@ python gitim.py -t <token>  -u <username> -o deep-learning-jhu -d ~/src/p03
 
 All github repositories will be cloned.
 
-# convert repositories to pdfs
+# Convert repositories to pdfs
+
+1. Install dependencies
 
 Make sure requirements are installed, and `~/.local/bin` is on your `PATH` in your `.bashrc` file:
 
@@ -43,6 +47,11 @@ brew cask install caskroom/versions/prince-latest
 - [marked](https://github.com/markedjs/marked) - for rendering markdown to html
 - [node.js](https://changelog.com/posts/install-node-js-with-homebrew-on-os-x) - installer for chrome-headless-render-pdf
 
+2. Run code_to_pdfs.py
+
+```
+python code_to_pdfs.py
+```
 
 # Troubleshooting
 
