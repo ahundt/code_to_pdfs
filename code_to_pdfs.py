@@ -19,8 +19,6 @@ from PyPDF2 import PdfFileMerger
 import errno
 import traceback
 
-
-
 # progress bars https://github.com/tqdm/tqdm
 # import tqdm without enforcing it as a dependency
 try:
