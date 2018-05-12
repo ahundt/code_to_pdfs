@@ -32,25 +32,24 @@ except ImportError:
             return args[0]
         return kwargs.get('iterable', None)
 
-
-flags.DEFINE_string(
-    'log_dir',
-    '~/src/deep-learning-jhu/p03/',
-    'Directory for multiple code repositories, '
-    'each of which will be converted to pdf'
-)
-
 flags.DEFINE_string(
     'glob_assignment_folders',
-    'p03*',
-    'File path to glob for collecting individual repository folders.'
-    'Can also be a path to a single assignment folder.'
+    '~/src/deep-learning-jhu/p03/*',
+    'File path to glob for collecting multiple individual repository folders.'
+    'Can also be a path to a single repository folder.'
 )
 
 flags.DEFINE_string(
     'glob_files',
-    'p03*',
+    '*p03*',
     'File path to glob for collecting assignment files in each repository folder.'
+)
+
+flags.DEFINE_string(
+    'extra_glob_files',
+    None,
+    'Optional extra path to glob for collecting assignment files in each repository folder.'
+    'You might want to use this for the README.md, for example'
 )
 
 flags.DEFINE_string(
@@ -131,7 +130,7 @@ def mkdir_p(path):
 def main(_):
     """ Load all the command line arguments and pass them to the primary repository conversion function
     """
-    assignment_folders = gfile.Glob(os.path.join(os.path.expanduser(FLAGS.log_dir), FLAGS.glob_assignment_folders))
+    assignment_folders = gfile.Glob(os.path.expanduser(FLAGS.glob_assignment_folders))
     dataframe_list = []
     output_files = []
     tmp_dir = os.path.join(FLAGS.tmp_dir, 'code_to_pdfs')
@@ -142,21 +141,41 @@ def main(_):
     pandoc_markdown_pdf_engines = FLAGS.pandoc_markdown_pdf_engines.split(',')
     pandoc_python_pdf_engines = FLAGS.pandoc_python_pdf_engines.split(',')
     pandoc_pdf_engines = FLAGS.pandoc_pdf_engines.split(',')
-    glob_files = FLAGS.glob_files
+    glob_files = [FLAGS.glob_files]
+    if FLAGS.extra_glob_files is not None and FLAGS.extra_glob_files:
+        glob_files += [FLAGS.extra_glob_files]
     verbose = FLAGS.verbose
 
     output_files = repository_to_pdf(
-        tmp_dir, assignment_folders, glob_files, pandoc_python_pdf_engines,
-        markdown_engines, pandoc_markdown_pdf_engines, save_dir, verbose)
+        assignment_folders, glob_files, pandoc_python_pdf_engines,
+        markdown_engines, pandoc_markdown_pdf_engines, save_dir,
+        tmp_dir, verbose)
 
     print('Processing complete generated files: ' + str(output_files))
 
 
 def repository_to_pdf(
-        tmp_dir, assignment_folders, glob_files, pandoc_python_pdf_engines,
-        markdown_engines, pandoc_markdown_pdf_engines, save_dir, verbose=False):
+        glob_assignment_folders, glob_files, save_dir,
+        markdown_engines=None, pandoc_markdown_pdf_engines=None,
+        pandoc_python_pdf_engines=None,
+        tmp_dir='/tmp', verbose=False):
     """ Convert one or more repositories to pdf files for grading
+
+    glob_files: file or list of files to match with gfile.Glob syntax.
     """
+    if pandoc_markdown_pdf_engines is None:
+        pandoc_markdown_pdf_engines = FLAGS.pandoc_markdown_pdf_engines.split(',')
+    if pandoc_python_pdf_engines is None:
+        pandoc_python_pdf_engines = FLAGS.pandoc_python_pdf_engines.split(',')
+    if pandoc_python_pdf_engines is None:
+        pandoc_pdf_engines = FLAGS.pandoc_pdf_engines.split(',')
+    if not isinstance(glob_assignment_folders, list):
+        glob_assignment_folders = [glob_assignment_folders]
+    if not isinstance(glob_files, list):
+        glob_files = [glob_files]
+    assignment_folders = []
+    for assignment_folder in glob_assignment_folders:
+        assignment_folders += gfile.Glob(os.path.expanduser(assignment_folder))
     progress = tqdm(assignment_folders)
     html_dir = os.path.join(tmp_dir, 'html')
     # create the temporary working directory
@@ -169,7 +188,10 @@ def repository_to_pdf(
         assignment_folder = os.path.expanduser(assignment_folder)
         assignment_folder_basename = os.path.basename(assignment_folder)
         progress.set_description('Generating: ' + assignment_folder)
-        assignment_files = gfile.Glob(os.path.join(assignment_folder, glob_files))
+        glob_files = 'p03*'
+        assignment_files = []
+        for glob_file in glob_files:
+            assignment_files += gfile.Glob(os.path.join(assignment_folder, glob_file))
 
         # clear out the temp directory so we can convert this assignment
         if os.path.exists(tmp_dir):
@@ -185,7 +207,7 @@ def repository_to_pdf(
             output_pdf_file = os.path.join(tmp_dir, assignment_file_base + '.pdf')
 
             pandoc_format = []
-            if '.py' in assignment_file[-4:]:
+            if '.py' in assignment_file[-4:] and '.pyc' not in assignment_file[-4:]:
 
                 # turn the code into an html file
                 html_file = os.path.join(html_dir, '{}.html'.format(assignment_file_base))
