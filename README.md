@@ -55,7 +55,7 @@ python code_to_pdfs.py
 
 # Troubleshooting
 
-Many people used private urls as if they were public, so it isn't possible to view the `*answers.md` files if it is cloned locally.
+Sometimes people use private urls as if they were public, so it isn't possible to view images in markdown files such as `*answers.md` files if it is cloned locally.
 Doing a globbed find and replace over the whole
 directory seemed to do the trick using the
 following string:
